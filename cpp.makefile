@@ -1,11 +1,22 @@
-# define matlab dir
-MDIR = /etc/matlab
+MATLAB_DIR = /opt/MATLAB
+
+OBJ_DIR    = obj
+BIN_DIR    = .
+
+TARGET_NAME = gatewayCpp
+TARGET      = $(TARGET_NAME).$(EXT)
+
+RM          = rm
 
 # compiles mex files using g++
-CC = g++
+CXX = g++
+LD  = g++
 
 # compiler flags for g++
-CCFLAGS = -O3 -fpic
+CFLAGS = -O3 -fpic -fno-omit-frame-pointer -pthread -Wall
+CXXFLAGS = $(CFLAGS)
+
+CPPFLAGS  = -MMD -MP
 
 # to use the intel compiler instead, uncomment CC and CCFLAGS below:
 
@@ -21,7 +32,8 @@ UNAME = $(shell uname -s)
 # Linux
 ifeq ($(findstring Linux,${UNAME}), Linux)
 	# define which files to be included
-	CINCLUDE = -I$(MDIR)/extern/include -Ic++ -shared
+	CINCLUDE = $(MATLAB_DIR)/extern/include
+	LDFLAGS= -pthread -Wl,--no-undefined -Wl,-rpath-link,$(MATLAB_DIR)/bin/glnxa64 -shared -L$(MATLAB_DIR)/bin/glnxa64 -lmx -lmex -lmat -lm -lstdc++
 	# define extension
 	EXT = mexa64
 endif
@@ -29,35 +41,39 @@ endif
 # Mac OS X
 ifeq ($(findstring Darwin,${UNAME}), Darwin)
 	# define which files to be included
-	CINCLUDE = -L$(MDIR)/bin/maci64 -Ic++ -shared -lmx -lmex -lmat
+	CINCLUDE = -L$(MATLAB_DIR)/bin/maci64
+	LDFLAGS= -pthread -Wl,--no-undefined -Wl,-rpath-link,$(MATLAB_DIR)/bin/maci64 -shared -L$(MATLAB_DIR)/bin/maci64 -lmx -lmex -lmat -lm -lstdc++
 	# define extension
 	EXT = mexmaci64
-	CCFLAGS += -std=c++11 
+	CCFLAGS += -std=c++11
 endif
 
-# the output file will be called gatewayCpp.mexa64
-all : gatewayCpp.$(EXT) standalone.cpp.out
+MEX_SRC += c++/fibonacci.cpp
+MEX_SRC += c++/gatewayCpp.cpp
 
-# fibonacci function: this is where the action happens
-fibonacci.o:./c++/fibonacci.cpp
-	$(CC) $(CCFLAGS) -c -Ic++ $< -o ./c++/$@
+CINCLUDE += c++
 
-# copying data between Matlab and Fortran and calling the fibonacci function
-gatewayCpp.o:./c++/gatewayCpp.cpp fibonacci.o
-	$(CC) $(CCFLAGS) -I$(MDIR)/extern/include -c  $< -o ./c++/$@
+CPPFLAGS += $(addprefix -I,$(CINCLUDE))
 
-# creating the mexa64 file that Matlab can communicate with
-gatewayCpp.$(EXT):gatewayCpp.o
-	$(CC) $(CCFLAGS) $(CINCLUDE) ./c++/gatewayCpp.o ./c++/fibonacci.o -o $@
+OBJECTS = $(addprefix $(OBJ_DIR)/,$(notdir $(MEX_SRC:.cpp=.o)))
 
-# standalone.o 
-standalone.o:./c++/standalone.cpp fibonacci.o
-	$(CC) $(CCFLAGS) -c -Ic++ $< -o ./c++/$@
+all:   build
 
-# standalone.out
-standalone.cpp.out:standalone.o
-	$(CC) $(CCFLAGS) ./c++/standalone.o ./c++/fibonacci.o -o $@
+build: $(BIN_DIR)/$(TARGET)
 
-# clean up
+$(BIN_DIR)/$(TARGET): $(OBJECTS)
+	$(LD) $(OBJECTS) $(LDFLAGS) -o $@
+
+$(OBJ_DIR)/%.o: %.cpp | dir
+	$(CXX) -c $(CXXFLAGS) $(CPPFLAGS) $< -o $@
+
+dir:
+	mkdir -p $(OBJ_DIR)
+
 clean:
-	rm -f cpp/*.o gatewayCpp.$(EXT) standalone.cpp.out
+	$(RM) -rf $(OBJ_DIR) $(BIN_DIR)/$(TARGET)
+
+
+vpath %.cpp $(sort $(dir $(MEX_SRC)))
+
+-include $(OBJECTS:.o=.d)
